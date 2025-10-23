@@ -1,71 +1,36 @@
 // src/api/axios-instance.ts
-import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
+import axios from 'axios';
+import { setupAuthInterceptors } from './interceptors/authInterceptor';
+import { setupErrorInterceptor } from './interceptors/errorInterceptor';
+
+/**
+ * Base URL from environment variables
+ * Falls back to localhost if not set
+ */
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8081/tenancy';
 
-// Crea axios instance
+/**
+ * Axios instance with configured interceptors
+ * - Authentication: Automatic token refresh on 401
+ * - Error handling: Global error messages with Ant Design
+ */
 export const axiosInstance = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000,
+  timeout: 30000, // 30 seconds
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor: aggiungi JWT token
-axiosInstance.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('accessToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+/**
+ * Setup interceptors
+ * Order matters: auth interceptor runs before error interceptor
+ */
+setupAuthInterceptors(axiosInstance);
+setupErrorInterceptor(axiosInstance);
 
-// Response interceptor: gestisci 401 e refresh token
-axiosInstance.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    const originalRequest = error.config;
-
-    if (error.response?.status === 401 && originalRequest) {
-      const refreshToken = localStorage.getItem('refreshToken');
-
-      if (refreshToken) {
-        try {
-          // Prova a refreshare il token
-          const response = await axios.post(`${BASE_URL}/api/v1/auth/refresh`, {
-            refreshToken,
-          });
-
-          const { accessToken, refreshToken: newRefreshToken } = response.data;
-
-          // Salva nuovi token
-          localStorage.setItem('accessToken', accessToken);
-          localStorage.setItem('refreshToken', newRefreshToken);
-
-          // Riprova la richiesta originale
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-          }
-          return axiosInstance.request(originalRequest);
-        } catch (refreshError) {
-          // Refresh fallito, redirect a login
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          window.location.href = '/login';
-          return Promise.reject(refreshError);
-        }
-      } else {
-        // Nessun refresh token, redirect a login
-        window.location.href = '/login';
-      }
-    }
-
-    return Promise.reject(error);
-  }
-);
-
+/**
+ * Export configured instance as default
+ */
 export default axiosInstance;
